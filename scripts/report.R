@@ -358,7 +358,7 @@ msgln1 <- ggplot(d, aes(x = date, y = length, color = sender)) +
     stat_summary(fun = mean, geom = "line") +
     labs(
         x = "Time of Year",
-        y = NULL,
+        y = "Message Length",
         color = "Sender"
     ) +
     theme(
@@ -373,7 +373,7 @@ msgln2 <- ggplot(d, aes(x = time, y = length, color = sender)) +
     stat_summary(fun = mean, geom = "line") +
     labs(
         x = "Time of Day",
-        y = "Mean Character (solid) and Word (dashed) Amount Per Message",
+        y = "Mean Character and Word Amount Per Message",
         color = "Sender"
     ) +
     stat_summary(aes(y = word),
@@ -620,7 +620,10 @@ length(corpfreq)
 
 
 ## ----clouds, optipng = '-o7', fig.height = 4----------------------------------
-cols <- c("#1F7A80FF", "#79C4B2FF", "#98D4D4FF", "#FF929AFF", "#FF6359FF", "#9C5568FF")
+cols <- c(
+  "#1F7A80FF", "#79C4B2FF", "#98D4D4FF",
+  "#FF929AFF", "#FF6359FF", "#9C5568FF"
+)
 
 wordcloud(corpus,
     max.words = 150, random.order = FALSE,
@@ -1014,7 +1017,7 @@ pol_overall <- ggplot(data = info_df) +
     ),
     width = 0.25, alpha = .5
     ) +
-    labs(y = "Mean sentiment value", x = "") +
+    labs(y = "Mean sentiment value", x = "Month") +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     scale_fill_manual(values = c("#FF929AFF", "#98D4D4FF")) +
     guides(fill = FALSE) +
