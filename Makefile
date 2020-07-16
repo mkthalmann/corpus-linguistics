@@ -19,7 +19,8 @@ cleanfigs:
 	-rm -rf figs/*
 
 cleandata:
-	-rm rf data/*
+	-rm rf data/*.csv
+	-rm rf data/*.txt
 
 cleanreport:
 	-rm rf report.html
