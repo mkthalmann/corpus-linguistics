@@ -1,0 +1,1204 @@
+---
+title: "Corpus Linguistics and Instant Messaging"
+subtitle: "WhatsApp Chats Analyzed For Speaker Contribution and Conversational Patterns"
+author: "Maik Thalmann, Matriculation No. 21434229, maik.thalmann@gmail.com."
+date: "Göttingen; `r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    html_document:
+        theme: paper
+        toc: true
+        toc_depth: 1
+        number_sections: true
+        highlight: kate
+        df_print: paged
+        code_folding: hide
+bibliography: /Users/Maik/Desktop/LaTeX/bibliographyuni.bib
+---
+
+```{r setup, echo = FALSE, warning = FALSE, message = FALSE}
+library(here)
+library(knitr)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  comment = NA,
+  collapse = TRUE,
+  cache = TRUE,
+  rownames.print = FALSE,
+  cols.print = 7
+)
+
+knitr::opts_chunk$set(cache.path = here("cache/"))
+
+knitr::opts_chunk$set(
+  fig.path = here("figs/"),
+  fig.show = "hold",
+  fig.align = "center",
+  out.width = "100%"
+)
+
+knitr::opts_chunk$set(tidy = "styler",
+                      tidy.opts = list(
+                        scope = "tokens",
+                        strict = TRUE,
+                        indent_by = 4
+                      ))
+
+# compress png images
+knit_hooks$set(optipng = hook_optipng)
+```
+
+# Introduction
+
+<style>
+body {
+text-align: justify
+}
+</style>
+
+Text mining has been applied to vast variety of texts and research goals, like linguistics [for an overview, see @BiberDouglas2015TCho], narratology [@mahmoudi2018literary] and political science [@wilkersonpolsci]. Though the computational toolkit is ever-expanding, ranging from simple techniques to sophisticated machine learning algorithms, there exist a number of steps are employed in a vast majority of projects of this kind.
+
+In what follows, I will apply a subset of the techniques that are prominent in those approaches to an ongoing message log on the Facebook-owned platform Whatsapp, spanning one entire year -- highlighting along the way natural ways of combining the different techniques in order to bolster the results brought forth by them individually. Specifically, following data preparation, I will first analyse message- and conversation-level statistics such as message length and frequency, focusing on points of contrasts between the two speakers in the corpus and on message clusters on the time axis with a focus on time of day, day of the week and month. 
+
+Following that, regular expression queries will be employed to identify typical themes and their distribution and status in the conversation, as well as n-grams to carve out common multi-word sequences that both unique to one speaker and shared between both. In a final step, the entire corpus will be analysed using sentiment analysis, focusing one base emotions on the one hand and simply emotional valance (or polarity) on the other. Combined, all of these technique will enable us to generate a clear picture as to how both speakers structure and compose their contributions to shared conversational goals and how both of diverge from the other.
+
+```{r loadpack, results='hide'}
+# load packages
+packages <- c(
+    # general
+    "tidyverse", "forcats", "here", "psych", "janitor",
+    "lubridate", "syn", "broom", "stringr",
+    # rmarkdown related
+    "kableExtra", "styler", "knitr",
+    # plotting
+    "gganimate", "scales", "patchwork",
+    "scico", "hrbrthemes",
+    # corpus and text processing
+    "wordcloud", "tm", "syuzhet", "ngram"
+)
+xfun::pkg_attach(packages, install = TRUE)
+# allow duplicate labels for chunks
+options(
+    scipen = 999, width = 100, max.print = 999
+)
+
+# seed as random number generation tasks
+set.seed(1234)
+```
+
+```{r theming, echo=FALSE}
+add <- 0
+theme_maik <- function() {
+    theme_ipsum_rc() %+replace%
+        theme(
+            legend.key = element_rect(colour = NA),
+            legend.position = "bottom",
+            legend.direction = "horizontal",
+            legend.key.size = unit(0.3, "cm"),
+            legend.margin = margin(0, 0, 0, 0, "cm"),
+            panel.grid.major.x = element_blank(),
+            panel.grid.minor.x = element_blank(),
+            panel.grid.major.y = element_line(colour = "gray"),
+            panel.grid.minor.y = element_line(colour = "gray"),
+            panel.spacing = unit(.5, "lines"),
+            plot.margin = unit(c(.1, .1, .1, .1), "cm"),
+            axis.line = element_line(colour = "gray", size = .5),
+            strip.text.x = element_text(size = 9),
+        ) +
+        theme(
+            legend.text = element_text(size = 7 + add),
+            legend.title = element_text(size = 8 + add),
+            axis.text.x = element_text(size = 7 + add),
+            axis.text.y = element_text(size = 7 + add),
+            axis.title.x = element_text(size = 7 + add),
+            axis.title.y = element_text(size = 7 + add),
+            plot.title = element_text(size = 13),
+            plot.subtitle = element_text(size = 10 + add),
+            plot.caption = element_text(size = 7 + add),
+            strip.text.x = element_text(size = 7 + add),
+            strip.text.y = element_text(size = 7 + add)
+        )
+}
+
+theme_set(theme_maik())
+```
+
+# Data Preparation
+
+The message log to form our object of study was obtained by using the provided export option within the iPhone app. Note that due to an update earlier in the year and following a legal decision by German courts, this functionality no longer exists for German users of the app.^[See https://t3n.de/news/whatsapp-kein-chat-export-mehr-1238327/.] Because of this, I will be analyzing an exported messages log that was created prior to the loss of that functionality. 
+
+In order to make the messages usable for the operations to follow, the text file, see the listing below for an example of the structure of the exported messages, needs to be cleaned. Though most of the information that we will need is present in the file (date, time, sender, and message data are exported as a single line per message), it is more convenient to work with data matrices.
+
+```{}
+[10.09.18, 17:13:16] Andrew: Sweet
+[10.09.18, 17:13:18] Andrew: Sounds good
+[10.09.18, 17:13:25] Andrew: Will bring my camera
+[10.09.18, 17:14:15] Maik: Awesome! Do you want to meet up there or should I come pick you up at some bus station?
+[10.09.18, 17:14:28] Andrew: Where do you live again?
+```
+
+Below, I have detailed the Python 3 (https://www.python.org, version 3.8.1) script that was used to convert the raw text file into a csv file, which will later be imported into R and processed further. In particular, regular expressions were applied to separate the different kinds of information into separate lists, each associated with only type of data (date, time, sender, and message text). As a final step, the lists were combined into a csv file using a pandas [@reback2020pandas; @mckinney-proc-scipy-2010] dataframe as an intermediate data representation.
+
+```{python getcsvfromraw, eval=F}
+import pandas as pd
+import re
+
+# empty lists that we will populate by finding regular expression patterns
+# in the raw data. In the final step, we will combine the lists into a data 
+# frame which will be our final data for use in R
+msg_date = []
+msg_time = []
+msg_sender = []
+msg = []
+
+# open the chat log in UTF-8 format
+with open('data_raw/_chat.txt', 'r', encoding='utf-8') as f:
+    string = f.readlines()
+    # iterate over the entire log to identify different regex patterns
+    for row in range(1, len(string)):
+ 
+        # the date pattern we want to look for
+        date_pattern = '(\d+.\d+.\d+)'
+        # if the date is found, add it to the list, if not add NA
+        try:
+            date = re.search(date_pattern, string[row]).group(0)
+        except AttributeError:
+            date = "NA"
+        msg_date.append(date)
+ 
+        # same process for time stamps
+        time_pattern = '\d+:\d+:\d+'
+        try:
+            time = re.search(time_pattern, string[row]).group(0)
+        except AttributeError:
+            time = "NA"
+        msg_time.append(time)
+ 
+        # now find the senders of the individual messages
+        person_pattern = '[\]]\s\w+'
+        try:
+            # use the entire match but delete the closing square bracket
+            person = re.search(person_pattern, string[row]).group(0).replace("] ", "")
+        except AttributeError:
+            person = "NA"
+        msg_sender.append(person)
+ 
+        # and, finally, the messages themselves
+        msg_pattern = '(:\s).*'    
+        try:
+            # delete the colon and the space that follows it
+            message = re.search(msg_pattern, string[row]).group(0).replace(": ", "")
+        except AttributeError:
+            message = "NA"
+        msg.append(message)
+
+# combine the lists into a data frame and add a row that contains the column names
+df = pd.DataFrame(list(zip(msg_date, msg_time, msg_sender, msg)),
+                  columns=['date', 'time', 'sender', 'message'])
+
+# export the data frame as a csv file
+df.to_csv("data/messages_cleaned.csv", index=False)
+```
+
+Following the preprocessing, the resulting file was read into R [@R2018statistical]. The code listing below shows the data in its form after the preprocessing and before further computational steps were performed.
+
+```{r import}
+# import data from python script output
+d <- read.csv(here("data", "messages_cleaned.csv"), as.is = TRUE)
+data.frame(
+    variable = names(d),
+    class = sapply(d, typeof),
+    first_values = sapply(d, function(x) {
+        paste0(head(x, 3),
+            collapse = ", "
+        )
+    }),
+    row.names = NULL
+)
+head(d)
+```
+
+At this stage, The entire corpus totals `r length(d$date)` messages. However, next, all rows containing missing values were eliminated from the data set, leaving `r length(d$date[complete.cases(d)])` rows of complete data. Missing values were generated whenever no date, sender, or message could be identified. As far as I can tell, this occurred whenever media files of any kind (images, video files, voice messages) were sent or when non-message events like WhatsApp-internal calls were carried out. In light of this, these rows can be deleted safely and will not affect any of the following analyses in a meaningful way.
+
+```{r emptycol}
+# remove empty rows
+d <- d[complete.cases(d), ]
+anyNA(d)
+```
+
+At this stage, all we can really see is that one speaker, Andrew, seems to have sent quite a few more messages than the other, as shown in the table below. However, further analyses might lead us to revise this conclusion. After all, this majority might potentially be comprised of low-word utterances. 
+
+```{r freqsender}
+# sender summary
+senders <- tabyl(d$sender)
+adorn_pct_formatting(senders)
+```
+
+Because of the way that R handles dates internally, namely with a designated data format, some conversions into that format are in order before we can proceed to draw conclusions from our data. This will not only come into play when visualizing the data, but also when creating further subdivisions for the data information. Specifically, below columns are added that identify the the month the message was sent as well as the corresponding day of the week, respectively.
+
+```{r convert}
+# data format conversions
+# adding date, time, month and week day information
+d <- d %>%
+    mutate(
+        date = dmy(date),
+        time = hour(hms(time)),
+        month = months(date, abbreviate = TRUE),
+        month = factor(month,
+            levels = c(
+                "Sep", "Oct", "Nov", "Dec",
+                "Jan", "Feb", "Mar", "Apr",
+                "May", "Jun", "Jul", "Aug"
+            )
+        ),
+        day = wday(date, label = TRUE),
+        day = factor(day,
+            levels = c(
+                "Mon", "Tue", "Wed",
+                "Thu", "Fri", "Sat", "Sun"
+            )
+        )
+    )
+```
+
+The table below features the state of the data after these additions.
+
+```{r afterdate}
+head(d, 13)
+```
+
+# Message Length and Sender {.tabset}
+
+Now, we are in a position to take a first look at the data in aggregation and maybe even revise some of our earlier results. Formed from a conversation between two individuals over a prolonged period of time, this corpus allows us the check various statistics in connection with who contributed to it in what way.
+
+```{r length-and-count}
+# length of messages and message count per sender
+d <- d %>%
+    mutate(length = nchar(message)) %>%
+    group_by(sender) %>%
+    mutate(count = length(message)) %>%
+    ungroup()
+```
+
+```{r countwords}
+# count all the words
+d$word <- str_count(d$message, boundary("word"))
+# amount of words in the corpus
+sum(d$word)
+```
+
+The code above allows for the following conclusions: Andrew sent `r length(d$word[d$sender == "Andrew"])` messages, while Maik sent only `r length(d$word[d$sender == "Maik"])`.^[Note that words here are simply defined collections of characters delimited by whitespace characters, thus including emojis and other markers of informal conversation types.] However, the longest message of `r max(d$word)` words was sent by Maik, who, at the same time supersedes Andrew in average message length: `r mean(d$word[d$sender == "Andrew"])` words for Andrew, `r mean(d$word[d$sender == "Maik"])` for Maik.
+
+The visualization below gives a more detailed impression of the message length distribution, showing a substantial skew to the right, in favor of shorter messages.
+
+```{r freqword, fig.height = 3}
+# word summary
+words <- tabyl(d$word) %>%
+    adorn_pct_formatting() %>%
+    head(15)
+
+ggplot(words, aes(x = `d$word`, y = n)) +
+    geom_line(color = "#98D4D4FF") +
+    scale_x_continuous(breaks = pretty_breaks(n = 15)) +
+    ylim(0, max(words$n)) +
+    labs(y = "Occurrences", x = "Message Length in Words")
+```
+
+A more detailed overview of how each speaker contributed to the conversation overall and in times of extreme (in)activity is shown in the following tables. The first of which deals with character length, the latter with (white)space-delimited character sequences.
+
+Summary statistics generated using @revelle2018psych.
+
+## Message Length in Characters
+
+```{r desclen}
+# descriptives for message length
+describeBy(d$length, d$sender, mat = TRUE, digits = 2)
+```
+
+## Message Length in Words
+
+```{r descword}
+# descriptives for word count
+describeBy(d$word, d$sender, mat = TRUE, digits = 2)
+```
+
+## {-}
+
+In the visualizations below [all of which, including the ones to follow, were created using the *ggplot package*; @wickham2016ggplot2], the amount is messages is broken down over the span of the entire year as well as its sender. The lower panel allows an inspection of the distribution over moths and weekdays. Notably, the hours of the night as well as the weekends feature less prominently than other time frames.
+
+```{r msgcounts, optipng = '-o7'}
+msgct1 <- ggplot(d, aes(x = date, color = sender)) +
+    stat_bin(geom = "line") +
+    labs(
+        x = "Time of Year",
+        y = "Message Count",
+        color = "Sender"
+    ) +
+    theme(
+        legend.position = c(0.85, 0.95),
+        axis.text.x = element_text(angle = 60, hjust = 1)
+    ) +
+    scale_x_date(breaks = pretty_breaks(n = 12)) +
+    scale_color_manual(values = c("#98D4D4FF", "#FF929AFF"))
+
+msgct2 <- ggplot(d, aes(x = time, fill = sender)) +
+    geom_histogram(position = "dodge") +
+    labs(
+        x = "Time of Day",
+        y = "Message Count",
+        fill = "Sender"
+    ) +
+    theme(
+        legend.position = c(0.3, 0.95),
+        legend.direction = "horizontal"
+    ) +
+    scale_fill_manual(values = c("#98D4D4FF", "#FF929AFF"))
+
+msgct3 <- ggplot(d, aes(x = day, fill = sender)) +
+    geom_bar(position = "dodge") +
+    labs(
+        x = "Weekday",
+        y = "Message Count",
+        fill = "Sender"
+    ) +
+    theme(legend.position = c(0.75, 0.95)) +
+    scale_fill_manual(values = c("#98D4D4FF", "#FF929AFF"))
+
+msgct1 /
+(msgct2 | msgct3)
+```
+
+This finding is further confirmed by the precise percent amounts shown in the table below: 
+
+```{r freqweek}
+# weekday summary
+days <- tabyl(d$day)
+adorn_pct_formatting(days)
+```
+
+These visualizations, instead of detailing the message count, feature the message length in characters. Note that the averages shown in the sparse areas, e.g., the hours of the night, are less reliable since outlying messages (of starkly different length than the rest) will affect measures of central tendency disproportionately. Once those areas of considerable uncertainty are excluded, however, one can clearly see that the overall message length for each speaker as well as the difference between them seems fairly constant.
+
+```{r messagelength, optipng = '-o7'}
+msgln1 <- ggplot(d, aes(x = date, y = length, color = sender)) +
+    stat_summary(fun = mean, geom = "line") +
+    labs(
+        x = "Time of Year",
+        y = NULL,
+        color = "Sender"
+    ) +
+    theme(
+        legend.position = c(0.3, 0.95),
+        legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 60, hjust = 1)
+    ) +
+    scale_x_date(breaks = pretty_breaks(n = 12)) +
+    scale_color_manual(values = c("#98D4D4FF", "#FF929AFF"))
+
+msgln2 <- ggplot(d, aes(x = time, y = length, color = sender)) +
+    stat_summary(fun = mean, geom = "line") +
+    labs(
+        x = "Time of Day",
+        y = "Mean Character (solid) and Word (dashed) Amount Per Message",
+        color = "Sender"
+    ) +
+    stat_summary(aes(y = word),
+        fun = mean, geom = "line",
+        linetype = "dashed"
+    ) +
+    theme(
+        legend.position = c(0.5, 0.95),
+        legend.direction = "horizontal"
+    ) +
+    scale_color_manual(values = c("#98D4D4FF", "#FF929AFF"))
+
+msgln1 /
+msgln2
+```
+
+# Sentence Types
+
+A further point of exploration concerns sentence types and their distribution. Before going into the results, however, a few words of caution are in order. As this corpus is comprised of non-formal text, relying, as I do here, on graphemic demarcation of sentence types is tentative at best. This holds for declarative clauses in particular as informal messages rarely end in periods in instant messaging environments. As such, without adding to the computational complexity of the present project, declarative results should not be taken as representative for the text. Scanning the for question and exclamation marks, however, should allow us to check at least the difference in distribution between the two. 
+
+```{r sentencetypes}
+# analyse sentence types including proportions
+sentence_types <- paste(tolower(d$message), collapse = " ")
+# add space before sentence type punctuation
+sentence_types <- gsub("\\!", " !", sentence_types)
+sentence_types <- gsub("\\?", " ?", sentence_types)
+sentence_types <- gsub("\\.", " .", sentence_types)
+# split at space to generate individual words
+sentence_types <- data.frame(strsplit(sentence_types, " "))[, 1]
+# subset out only ?, ! and .
+sentence_types <- factor(sentence_types[sentence_types %in%
+                                            c("?", "!", ".")])
+```
+
+The table below confirms the remarks made at the outset of this section: declarative utterance form the overwhelming minority, contrary to what we would expect from texts otherwise. If the goal was to gather reliable data, as opposed to simply exploring the limits of simple text mining approaches, a modulation of the regular expression patterns would be in order. Or, failing that, the results would have to be discarded. As it stands, we can observe that, under the chosen approach, imperative/exclamative and interrogative utterance are used here in relative equilibrium (though, of course, the same caveats regarding graphematic demarcation apply to these as well).
+
+```{r sentencepercent}
+# compute the overall occurrences as well as their ratio
+sentence_types <- tabyl(sentence_types)
+names(sentence_types) <- c("sentence", "occurrences", "percent")
+sentence_types$percent <- percent(sentence_types$percent)
+
+sentence_types
+```
+
+# Message Types
+
+In this section, I wanted to identify different types of messages and their impact on the entire text body. To do this, eight look-up patterns were defined according to the type of message they were designed to find. One such pattern (`sorry.txt`) is exemplified below, the seven remaining ones can be found in the repository for this document in the `assets` directory.
+
+```{}
+# contents of assets/sorry.txt
+sorry|apologize|entschuldigung|tut mir leid
+```
+
+Next, a function was defined that would import one such pattern from its text file and run a case insensitive regular expression search over all of the messages in the corpus. The resulting counts for each of these searches were added in separate column for the data frame.
+
+```{r newcols}
+# function to read in the patterns from the text files with regex patterns
+# and count the occurrences in the message column in form of a vector
+# with each value representing count per row (message)
+input_pattern <- function(file) {
+    fullfile <- here("assets", paste0(file, ".txt"))
+    pattern <- readChar(fullfile, file.info(fullfile)$size)
+    str_count(d$message, regex(pattern, ignore_case = TRUE))
+}
+
+# look for specific message type and create a counting column
+# for all eight patterns
+d <- d %>%
+    mutate(
+        ily = input_pattern("ily"),
+        miss = input_pattern("miss"),
+        baby = input_pattern("pet"),
+        sex = input_pattern("sex"),
+        sorry = input_pattern("sorry"),
+        insult = input_pattern("insult"),
+        tired = input_pattern("tired"),
+        drag = input_pattern("drag")
+    )
+```
+
+The table below shows the distribution of all of the included message types. 
+
+```{r freqmesstype}
+# check the overall amounts of the new columns
+d %>%
+    gather(
+        "type", "count", ily, miss, baby, sex,
+        insult, sorry, tired, drag
+    ) %>%
+    group_by(type) %>%
+    summarise(count = sum(count)) %>%
+    arrange(desc(count)) %>%
+    mutate(prop = percent(count / sum(count))) -> dlong
+
+dlong
+```
+
+Broken down by speaker, we can see that Andrew's messages are represented much more in the regular expression search patterns. Though we are not in a position to judge why exactly that might be, there are a few potential candidates. One, Andrew might make less varied use of such expressions, leading to high yields, while Maik might employ a lot of variants, of which maybe only a few are contained in the pattern lists. A second explanation might be that Maik simply makes more spelling errors, for one reason or another, which would similarly lead to low precision when it comes to the strategy of identifying message types that was employed here.
+
+```{r freqmesstypesender}
+d %>%
+    gather(
+        "type", "count", ily, miss, baby, sex,
+        insult, sorry, tired, drag
+    ) %>%
+    group_by(type, sender) %>%
+    summarise(count = sum(count)) %>%
+    arrange(desc(count))
+```
+
+
+```{r convertofactor, echo=FALSE}
+# convert columns to factors
+d <- mutate_at(d, c("sender"), factor)
+```
+
+The plot below highlights one message type (*I-love-you*-type messages and related displays of affection) in all of the dimensions of the corpus we have considered so far by showing the mean occurrence rate per message over the entirety of the year under study, separately for each month, and by day of the week.
+
+```{r lovemsgplt, optipng = '-o7'}
+ilyplt1 <- ggplot(d, aes(x = date, y = ily, color = sender)) +
+    stat_summary(fun = mean, geom = "line") +
+    labs(
+        x = "Time of Year",
+        y = "I-Love-You Type Messages",
+        color = "Sender"
+    ) +
+    scale_color_manual(values = c("#98D4D4FF", "#FF929AFF")) +
+    coord_cartesian(ylim = c(0, 2)) +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+    scale_x_date(breaks = pretty_breaks(n = 12))
+
+ilyplt2 <- ggplot(d, aes(x = month, y = ily, color = sender, group = sender)) +
+    stat_summary(fun = mean, geom = "line") +
+    stat_summary(fun = mean, geom = "point") +
+    scale_color_manual(values = c("#98D4D4FF", "#FF929AFF")) +
+    labs(
+        x = "Month",
+        y = "I-Love-You Type Messages"
+    ) +
+    guides(color = FALSE)
+
+ilyplt3 <- ggplot(d, aes(x = day, y = ily, color = sender, group = sender)) +
+    stat_summary(fun = mean, geom = "line") +
+    stat_summary(fun = mean, geom = "point") +
+    scale_color_manual(values = c("#98D4D4FF", "#FF929AFF")) +
+    stat_summary(
+        fun.data = mean_se, geom = "errorbar",
+        width = 0.25, alpha = .5, linetype = 1,
+        color = "#98D4D4FF"
+    ) +
+    labs(
+        x = "Weekday",
+        y = "I-Love-You Type Messages"
+    ) +
+    guides(color = FALSE)
+
+ilyplt1 /
+(ilyplt2 | ilyplt3)
+```
+
+The following visualizations detail four of the message types by their mean occurrence per message for each speaker separately. 
+
+```{r typeplt, optipng = '-o7', fig.height = 3}
+d %>%
+    gather("type", "count", ily, miss, baby, sex) %>%
+    ggplot(aes(x = month, y = count, color = type, group = type)) +
+    stat_summary(fun = mean, geom = "line") +
+    labs(
+        x = "Month",
+        y = "Message Count",
+        color = "Type",
+        group = "Type"
+    ) +
+    scale_color_manual(values = scico(4, palette = "batlow")) +
+    theme(
+        legend.position = c(0.52, 0.95),
+        legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 60, hjust = 1)
+    ) +
+    facet_wrap(~sender)
+```
+
+Gif generated using @Pedersen2020gganimate
+
+```{r typegif, fig.height = 3, gganimate = list(fps = 5, nframes = 50)}
+d %>%
+    gather(
+        "type", "count", ily, baby, miss, sex,
+        insult, sorry, tired, drag
+    ) %>%
+    mutate(month = factor(month, levels = month.abb)) %>%
+    count(type, date, month, wt = count) %>%
+    ggplot(aes(reorder(type, -n), n, color = type)) +
+    geom_line(
+        mapping = aes(group = 1),
+        stat = "summary", fun = mean
+    ) +
+    geom_jitter(alpha = .3) +
+    geom_point(stat = "summary", fun = mean, size = 3) +
+    stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.35) +
+    labs(
+        title = "Mean of Message Type Occurrence in: {closest_state}",
+        x = "Message Type",
+        y = "Mean Occurrence"
+    ) +
+    guides(color = FALSE) +
+    coord_cartesian(ylim = c(0, 15)) +
+    scale_color_scico_d(palette = "batlow") +
+    transition_states(month,
+        state_length = 3,
+        transition_length = 5
+    )
+```
+
+# Virtual Corpora
+
+## Preparation
+
+In this section, we will try to identify something that might be called each speaker's lexical signature, i.e., his most used words. To do this, all punctuation and other superfluous material will be removed from the object of study using regular expression. Further, we will work with three message collection objects: one that contains all of the messages, and two that contain only the messages sent by one speaker. To achieve this, we will use the *tm* package [@Feinerer2008Text-Mining-Inf].
+
+```{r messages}
+# create one long string with all the messages
+messages_all <- paste(tolower(d$message), collapse = " ")
+
+# remove some strings that would hinder further analyses
+messages_all <- gsub(",|\\(|)|\\.|:|;|\\!|\\?", "", messages_all)
+messages_all <- gsub("[[:punct:]]", "", messages_all)
+
+# create a long string for each of us
+messages_all_a <- paste(tolower(d$message[d$sender == "Andrew"]),
+                        collapse = " ")
+messages_all_m <- paste(tolower(d$message[d$sender == "Maik"]),
+                        collapse = " ")
+```
+
+After separating the messages, we need to create the virtual corpora and prepare them further for analyses. One crucial step is the removal of so-called stop-words. These are words that we are not particularly interested in in the pursuit of comparing the personal lexicon of each of the speakers, namely closed class lexical items that tend to be the most frequent terms in texts at any rate, simply by virtue of their role in grammar. Additionally, there are some artifacts, which, I assume, are due to text encoding that occurs when whatsapp exports message logs. Specifically, contraction and possessive markers are encoded in such a way that the preprocessing functions in *tm* do not recognize them. To combat this, they were removed manually.
+
+Coming back to *tm*, the corpora are prepared using the custom function below, which takes care of several issues that would hinder our current efforts; among them removing white space and number tokens.
+
+```{r assemblecorps}
+# assemble the corpora
+corpus <- VCorpus(VectorSource(messages_all))
+corpus_andrew <- VCorpus(VectorSource(messages_all_a))
+corpus_maik <- VCorpus(VectorSource(messages_all_m))
+
+# generate list of words to be removed from the corpora
+mystopwords <- c(
+    stopwords("english"), "'re", "'ll", "omit", "didn'",
+    "’ve", "’ll", "didn’", "didn’", "don’", "’re",
+    "image", "video", "doesn’", "omit", "omitted", "can’t",
+    "isn’t", "wasn’t", "let’s", "haven’t", "won’t", "couldn’t"
+)
+mystopwords <- setdiff(mystopwords, c("love"))
+
+# function to perform some cleanup operations
+prep_corpus <- function(c) {
+    c <- tm_map(c, content_transformer(tolower))
+    c <- tm_map(c, removeWords, mystopwords)
+    c <- tm_map(c, removeNumbers)
+    c <- tm_map(c, removePunctuation)
+    c <- tm_map(c, stripWhitespace)
+    # seems to mess everything up, so I do not stem this corpus
+    # c <- tm_map(c, stemDocument)
+    c
+}
+
+# use function to prep all three corpora
+corpus <- prep_corpus(corpus)
+corpus_andrew <- prep_corpus(corpus_andrew)
+corpus_maik <- prep_corpus(corpus_maik)
+```
+
+## Word Clouds {.tabset}
+
+After all of the corpora have been preprocessed, we can inspect them one by one and generate word cloud visualizations using the *wordcloud* package [@Fellows2018wordcloud]. The visualizations to follow feature the most commonly occurring words overall, for Andrew, and for Maik, respectively. As is clearly evident, there is a large amount of overlap in the terms constituting the majority of the conversational contribution of both.
+
+### Overall
+
+```{r dtmall}
+# generate a document-term matrix
+dtm_all <- DocumentTermMatrix(corpus)
+# length should be total number of terms (i.e., unique words)
+corpfreq <- colSums(as.matrix(dtm_all))
+length(corpfreq)
+```
+
+```{r clouds, optipng = '-o7', fig.height = 4}
+cols <- c(
+    "#1F7A80FF", "#79C4B2FF", "#98D4D4FF",
+    "#FF929AFF", "#FF6359FF", "#9C5568FF"
+    )
+
+wordcloud(corpus,
+    max.words = 150, random.order = FALSE,
+    min.freq = 5, rot.per = 0, use.r.layout = TRUE,
+    colors = cols, scale = c(3, .7)
+)
+```
+
+### Andrew
+
+```{r dtma}
+dtm_a <- DocumentTermMatrix(corpus_andrew)
+# length should be total number of terms
+corpfreq <- colSums(as.matrix(dtm_a))
+length(corpfreq)
+```
+
+```{r cloudandrew, optipng = '-o7', fig.height = 4}
+wordcloud(corpus_andrew,
+    max.words = 150, random.order = FALSE,
+    min.freq = 5, rot.per = 0, use.r.layout = TRUE,
+    colors = cols, scale = c(3, .7)
+)
+```
+
+### Maik
+
+```{r dtmm}
+dtm_m <- DocumentTermMatrix(corpus_maik)
+# length should be total number of terms
+corpfreq <- colSums(as.matrix(dtm_m))
+length(corpfreq)
+```
+
+```{r cloudmaik, optipng = '-o7', fig.height = 4}
+wordcloud(corpus_maik,
+    max.words = 150, random.order = FALSE,
+    min.freq = 5, rot.per = 0, use.r.layout = TRUE,
+    colors = cols, scale = c(3, .7)
+)
+```
+
+## {-}
+
+Going into a bit more detail, one interesting conclusion from this section is the fact both speakers employ roughly 6000 non-excluded distinct words (though forms might be a better term) in their messages. Overall, however, about 9000 words remain after the preprocessing steps, which suggests that the vocabularies of both speakers differ quite drastically, with 3000 words which belong only to one of the speakers' active lexical repertoire -- at least in the conversation we are considering now.
+
+## Frequently-Used Terms {.tabset}
+
+The list below, again, features a roundup of frequent lexical items. However, these lists give the clear impression that there is a large amount of overlap. In order to identify each speaker's unique lexical choices, we will make use of complement sets in this section. Specifically, we will be looking for tokens in the corpus that are only present for one of the speakers. To make the list less susceptible to typos and occasionalisms, only those tokens with a minimum frequency of 5 will be considered.
+
+```{r freqterm}
+# list words that occur at least 150 times for each corpus
+findFreqTerms(dtm_a, lowfreq = 150)
+findFreqTerms(dtm_m, lowfreq = 150)
+```
+
+### Andrew
+
+The list below shows the beginning and end of that (alphabetically ordered) list Andrew's messages.
+
+```{r worddiffa}
+andrew_unique <- setdiff(
+    findFreqTerms(dtm_a, lowfreq = 5),
+    findFreqTerms(dtm_m, lowfreq = 5)
+)
+
+
+tibble(
+    first15 = head(andrew_unique, 15),
+    last15 = tail(andrew_unique, 15)
+)
+```
+
+### Maik
+
+And now we turn to the words in Maik's corpus to the exclusion of the intersection with Andrew's.
+
+```{r worddiffm}
+maik_unique <- setdiff(
+    findFreqTerms(dtm_m, lowfreq = 5),
+    findFreqTerms(dtm_a, lowfreq = 5)
+)
+
+tibble(
+    first15 = head(maik_unique, 15),
+    last15 = tail(maik_unique, 15)
+)
+```
+
+## {-}
+
+Though only a few examples are shown above, the interested reader can find the full set of unique tokens in the `data` directory of this repository where both are exported as `unique_andrew.txt` and `unique_maik.txt` respectively.
+
+# N-Grams 
+
+## Extracting N-Grams {.tabset}
+
+Going beyond single words, we will now process n-grams using the *ngram* package [@schmidt2017ngram]. As *ngram* only works with continuous strings and not with virtual corpora created with *tm* or vectorized data, we will have to preprocess the message once more. This is done with a custom function, which, again, removes some artifacts probably caused by media messages.
+
+```{r preprocess}
+# function to preprocess the string
+prep <- function(x) {
+    gramstring <- preprocess(x,
+        case = "lower",
+        remove.punct = TRUE
+    )
+    gramstring <- gsub(
+        "omit|omitted|image", "",
+        gramstring
+    )
+    gramstring
+}
+
+# preprocessing for overall and per sender strings
+gramstring <- prep(messages_all)
+gramstring_a <- prep(messages_all_a)
+gramstring_m <- prep(messages_all_m)
+```
+
+The tables highlight that, despite the substantial amount of lexical variation between the speakers, both predominantly make use of short words, averaging about 4 characters each. Again, this is probably due to the informal nature of WhatsApp conversations and the existence closed class lexical items, which tend to be quite short, like *a*, *the*, and the various inflected forms of *be*.
+
+### Overall 
+
+```{r gramsummary}
+# generate a summary
+# for all messages combined
+a <- string.summary(gramstring)
+data.frame(a[1], a[2], a[6], av_word_length = a[[2]] / a[[6]])
+```
+
+### Andrew 
+
+```{r gramsummary_a}
+# for andrew's
+a <- string.summary(gramstring_a)
+data.frame(a[1], a[2], a[6], av_word_length = a[[2]] / a[[6]])
+```
+
+### Maik
+
+```{r gramsummary_m}
+# for maik's
+a <- string.summary(gramstring_m)
+data.frame(a[1], a[2], a[6], av_word_length = a[[2]] / a[[6]])
+```
+
+## {-}
+
+```{r trigrams}
+# process trigrams
+tri <- ngram(gramstring, n = 3)
+tri_a <- ngram(gramstring_a, n = 3)
+tri_m <- ngram(gramstring_m, n = 3)
+```
+
+```{r extracttop}
+# extract top trigrams
+tridat <- head(get.phrasetable(tri), 15)
+tridat_a <- head(get.phrasetable(tri_a), 15)
+tridat_m <- head(get.phrasetable(tri_m), 15)
+```
+
+Having processed the trigrams, we can now visualize which ones are the most common. The plot below shows, in the upper panel, the most prevalent trigrams overall and, in the lower panels, the results for each speaker in isolation. Apart from simply showing the trigrams, this also confirms that the message type analyses using regular expressions captured very ubiquitous themes in the conversation at hand: the first four trigrams in the overall panel, for example, are clear instantiations of the types of messages that were caught by the *i-love-you*-type pattern and there are cases of other message types as well. Insofar, then, both analyses substantiate each other by achieving similar results by different approaches.
+
+```{r triplts, optipng = '-o7'}
+tri_all <- ggplot(tridat, aes(x = reorder(ngrams, freq), y = freq)) +
+    geom_bar(stat = "identity", fill = "#98D4D4FF") +
+    coord_flip() +
+    labs(x = "Trigrams", y = "Count")
+
+tri_a <- ggplot(tridat_a, aes(x = reorder(ngrams, freq), y = freq)) +
+    geom_bar(stat = "identity", fill = "#98D4D4FF") +
+    coord_flip() +
+    labs(x = "Trigrams", y = "Count", title = "Andrew")
+
+tri_m <- ggplot(tridat_m, aes(x = reorder(ngrams, freq), y = freq)) +
+    geom_bar(stat = "identity", fill = "#98D4D4FF") +
+    coord_flip() +
+    labs(x = "Trigrams", y = "Count", title = "Maik")
+
+tri_all /
+(tri_a | tri_m)
+```
+
+## Generating N-Grams {.tabset}
+
+One further feature introduced with the *ngram* package is the possibility of generating text from the base message string that has the same statistical properties as the n-grams that were found using markov chains as a sampling scheme.^[Note that this process is not fully reproducible as *ngram* employs its own internal random number sampling process, rendering R's `set.seed()` ineffective.] Obviously, the generated strings are not always grammatical (or even intelligible), but with regard to the rise of text generation/natural computerized messaging projects like ELIZA [@Weizenbaum1966], it is an interesting functionality. The tables below feature ten instances of sampled text of five tokens each for both speakers.
+
+### Andrew
+
+```{r babble_a}
+# for andrew's messages
+tibble(
+    message = replicate(10,
+        babble(ngram(gramstring_a, n = 3), genlen = 5))
+)
+```
+
+### Maik
+
+```{r babble_m}
+# for maiks's messages
+tibble(
+    message = replicate(10,
+        babble(ngram(gramstring_m, n = 3), genlen = 5))
+)
+```
+
+# Sentiment Analysis {.tabset}
+
+As a final in step the analysis, I will be analyszing the messages in the data set in terms of the emotions conveyed by them, as indicated by the results of the algorhithms implemented in the *syuzhet* package [@Jockers2015Syuzhet]. The potential categories include: `anger`, `disgust`, `anticipation`, and `joy`, as well as more general categories like `positive` and `negative`, dubbed here as polarity. The latter part, though also clearly sentiment analysis and automatically computet with the *syuzhet* package, will also be implemented by using large word lists (the positive category totals about 2000 entries, the negative one approaches 5000) and looking for occurrences of these items in the message log.
+
+As with the steps before, sentiments will be investigated three times: once for each of the speakers and once for the overall data set -- the last of which is achieved by combining the individual speakers' datasets to save computation time.
+  
+```{r sentiments}
+# do the sentiment analysis for Andrew's messages
+d_andrew <- filter(d, sender == "Andrew")
+sent_andrew <- get_nrc_sentiment(d_andrew$message)
+
+# sentiment analysis for Maik's messages
+d_maik <- filter(d, sender == "Maik")
+sent_maik <- get_nrc_sentiment(d_maik$message)
+
+# combine the two datasets into a complete sentiment representation
+sent <- sent_andrew %>%
+    mutate(sender = "Andrew") %>%
+    bind_rows(sent_maik %>%
+        mutate(sender = "Maik"))
+
+# and save it
+write.csv(
+    sent, here("data", "sentiments.csv"), row.names = FALSE, quote = FALSE
+    )
+```
+
+The tables below feature the results of these computations and show that a surprising number of sentiments could be identified despite the informal nature of the body of text. This result could be interpreted in two ways: either both speakers use fairly standard written English even though their conversation takes place in an informal, more non-standard setting or the procedure of identifying the sentiments is sophisticated enough to handle even substandard exchanges.
+
+## Overall
+
+```{r sentcolsums}
+# check the overall amounts of the new columns
+sent_andrew %>%
+    bind_rows(sent_maik) %>%
+    summarise_all(list(sum))
+```
+
+## Andrew 
+
+```{r sentcolsums_a}
+sent_andrew %>%
+    summarise_all(list(sum))
+```
+
+## Maik 
+
+```{r sentcolsums_m}
+sent_maik %>%
+    summarise_all(list(sum))
+```
+
+## {-}
+
+From the visualizations below, it is evident that although the absolute amounts differ, the relative ranking of the emotions between between both speakers is the same. Though interpreting these data in aggregated form is not without peril, one could infer that both speakers seemed to have experienced and expressed the same emotions over the course of the conversation. Note, of course, that anything stronger would have to be backed by further investigations, e.g. by binning the data and running the sentiment analysis once more. However, as this is beyond the scope of the current project, I will not explore this avenue any further.
+
+```{r sentpltsbar, optipng = '-o7'}
+plot_sent_all <- sent %>%
+    gather("type", "count", everything()) %>%
+    group_by(type) %>%
+    summarise(count = sum(as.numeric(count))) %>%
+    arrange(desc(count)) %>%
+    ggplot(aes(x = reorder(type, count), y = count)) +
+    geom_bar(stat = "identity", fill = "#98D4D4FF") +
+    coord_flip() +
+    labs(x = "Sentiment", y = "Count") +
+    scale_y_continuous(breaks = pretty_breaks(n = 12))
+
+plot_sent_a <- sent_andrew %>%
+    gather("type", "count", everything()) %>%
+    group_by(type) %>%
+    summarise(count = sum(as.numeric(count))) %>%
+    arrange(desc(count)) %>%
+    ggplot(aes(x = reorder(type, count), y = count)) +
+    geom_bar(stat = "identity", fill = "#98D4D4FF") +
+    coord_flip() +
+    labs(title = "Andrew", x = "Sentiment", y = "Count") +
+    scale_y_continuous(
+        breaks = pretty_breaks(n = 12),
+        limits = c(0, 6000)
+    )
+
+plot_sent_m <- sent_maik %>%
+    gather("type", "count", everything()) %>%
+    group_by(type) %>%
+    summarise(count = sum(as.numeric(count))) %>%
+    arrange(desc(count)) %>%
+    ggplot(aes(x = reorder(type, count), y = count)) +
+    geom_bar(stat = "identity", fill = "#98D4D4FF") +
+    coord_flip() +
+    labs(title = "Maik", x = "Sentiment", y = "Count") +
+    scale_y_continuous(
+        breaks = pretty_breaks(n = 12),
+        limits = c(0, 6000)
+    )
+
+plot_sent_all /
+(plot_sent_a | plot_sent_m)
+```
+
+This section is an alternative form of sentiment analysis that focuses on word lists that are available online for the purpose of determining the polarity of conversational contributions. In contrast to what we did earlier, here we are not going to check for individual emotions. Instead, we will focus exclusively on the positive-negative dichotomy. Provided below are some examples for the positive and negative category, the full lists can be found in the `assets` directory for this document's repository.
+
+```{r sentlists}
+# read in the word lists to base the sentiment analysis on
+neg_words <- scan(here("assets", "negative.txt"),
+    sep = "\n", what = "char"
+)
+pos_words <- scan(here("assets", "positive.txt"),
+    sep = "\n", what = "char"
+)
+head(pos_words, 15)
+head(neg_words, 15)
+```
+
+```{r posnegscores}
+# compute the positive and negative scores based on the word list
+d$n_pos <- sapply(d$message, USE.NAMES = FALSE, function(x) {
+    length(x[x %in% pos_words])
+})
+d$n_neg <- sapply(d$message, USE.NAMES = FALSE, function(x) {
+    length(x[x %in% neg_words])
+})
+```
+
+For both plotting purposes and statistical exploration, some simple measures relativizing polarity to word count and the other end of the polarity spectrum were computed below. The results of this are shown in the next table.
+
+```{r sentsub}
+# create new data set that contains a subset
+# where each message is at least one word long
+dsent <- subset(d, word > 0)
+# compute some simple stats
+dsent$pos_ratio <- dsent$n_pos / dsent$word
+dsent$neg_ratio <- dsent$n_neg / dsent$word
+dsent$sent_val <- dsent$pos_ratio - dsent$neg_ratio
+
+# aggregate the data for plotting
+info_df <- aggregate(word ~ month, data = dsent, mean)
+info_df <- merge(info_df,
+                 aggregate(pos_ratio ~ month, data = dsent, mean),
+                 by = "month")
+info_df <- merge(info_df,
+                 aggregate(neg_ratio ~ month, data = dsent, mean),
+                 by = "month")
+info_df <- merge(info_df,
+                 aggregate(pos_ratio ~ month, data = dsent, sciplot::se),
+                 by = "month")
+info_df <- merge(info_df, aggregate(
+    neg_ratio ~ month, data = dsent, sciplot::se),
+                 by = "month")
+info_df <- merge(info_df, aggregate(sent_val ~ month, data = dsent, mean),
+                 by = "month")
+info_df <- merge(info_df, aggregate(sent_val ~ month, data = dsent,
+                sciplot::se), by = "month")
+names(info_df)[3:8] <- c(
+    "mean_pos_ratio", "mean_neg_ratio",
+    "se.pos_ratio", "se.neg_ratio",
+    "mean.sent_val", "se.sent_val"
+)
+info_df$sent_pol <- ifelse(info_df$mean.sent_val > 0, "positive", "negative")
+```
+
+```{r infodfhead}
+head(info_df)
+```
+
+As the visualization below shows, the sentiments expressed through the messages are largely stable in terms of their proportion, though their rate seems to increase over the course of the year. What is more, both speakers convey similar emotions and almost seem to mirror each other (as hinted at before). Though is expected to a degree -- after all, it is often the case that if one speaker is, say, aggressive, so is the other -- the small amount of inter-speaker variation, particularly in light of all the sentiments analyzed, is surprising.
+
+```{r meansentplt, optipng = '-o7'}
+# add sentiment analysis to main data set
+d <- cbind(d, sent[1:(length(sent) - 1)])
+
+sent_month <- d %>%
+    gather(
+        "sentiment", "count", positive, negative, trust, surprise,
+        sadness, joy, fear, disgust, anticipation, anger
+    ) %>%
+    arrange(desc(count)) %>%
+    ggplot(aes(
+        x = month, y = count, color = reorder(sentiment, -count),
+        group = reorder(sentiment, count)
+    )) +
+    geom_line(stat = "summary", fun = mean) +
+    theme(legend.position = "bottom") +
+    labs(
+        x = "Month", y = "Mean Sentiment Count",
+        color = "Sentiment", group = "Sentiment"
+    ) +
+    scale_color_manual(values = scico(10, palette = "batlow")) +
+    guides(
+        color = guide_legend(ncol = 6),
+        group = guide_legend(ncol = 6)
+    ) +
+    facet_wrap(~sender, ncol = 1)
+
+sent_month
+```
+
+As for the categorization into positive and negative sentiments using the simpler word-list approach, we can clearly observe that positive ones invariably form the vast majority, though the distribution itself seems almost erratic when broken up by month as in the graph below. To investigate these patterns further, a more detailed analysis is needed, possibly by using all the previously discussed tools in a more targeted, hypothesis-driven way. Since such an in-depth look goes beyond the intentions of the current study, all interpretation would be mere speculation.
+
+```{r polplts, optipng = '-o7'}
+# separate polarity based on the month
+sentiment_df <- data.frame(
+    month = rep(info_df$month, 2),
+    value = c(
+        info_df$mean_pos_ratio,
+        info_df$mean_neg_ratio * -1
+    ),
+    errors = c(
+        info_df$se.pos_ratio,
+        info_df$se.neg_ratio
+    ),
+    polarity = rep(c(
+        "positive", "negative"
+    ),
+    each = nrow(info_df)
+    )
+)
+sentiment_df$polarity <- factor(sentiment_df$polarity, levels = c(
+    "positive", "negative"))
+
+pol_both <- ggplot(data = sentiment_df, aes(
+    x = month, y = value, fill = polarity
+)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = value - errors, ymax = value + errors),
+        width = 0.25, alpha = .5
+    ) +
+    labs(
+        y = "Mean sentiment value", x = "Month", fill = "Polarity"
+    ) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("#98D4D4FF", "#FF929AFF"))
+
+pol_overall <- ggplot(data = info_df) +
+    aes(
+        x = reorder(month, mean.sent_val),
+        y = mean.sent_val,
+        fill = sent_pol
+    ) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(
+        ymin = mean.sent_val - se.sent_val,
+        ymax = mean.sent_val + se.sent_val
+    ),
+    width = 0.25, alpha = .5
+    ) +
+    labs(y = "Mean sentiment value", x = "") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("#FF929AFF", "#98D4D4FF")) +
+    guides(fill = FALSE) +
+    coord_flip()
+
+pol_both /
+pol_overall
+```
+
+# Conclusions
+
+Summing up, let me try to recapitulate and bring to gather the, at first at least, very disparate approaches and results to the corpus linguistic methods that were applied over the course of this study. Despite the inhomogeneity of the techniques, there were points of contact at which one approach substantiated the results of another. For example, both the n-gram analyses and the word lists obtained through the virtual corpora suggest an overall similar vocabulary between both speakers and, in turn, naturally extended the message topic identification attempt using regular expressions. 
+
+Wihtin all of those results, there was a large amount of between both speakers; a finding that was again confirmed with the sentiment analysis where both speakers were found to convey the same range of emotions and, what was more surprising, to the same degree. Insofar then, all the analyses delivered similar impressions of the data under study, if from different angles. Thus, a wealth of techniques enables not only the investigation of different facets of the data but also serve to offer a great deal of corroboration.
+
+The points of contrast, on the other hand, were less overarching in their appearance and generally only manifested either when more fine-grained measures were applied (for example with the unique speaker-level vocabulary). On this view then, contrastive studies, specifically when the sought after discrepancies are general, should employ a variety of approaches in order to facilitate higher identification chances.
+
+```{r exportfiles}
+# export final dataset exlcuding the message texts
+d %>%
+    select(-message) %>%
+    write.table(here("data", "messages_full.csv"),
+          row.names = FALSE, quote = FALSE)
+
+# unique words
+write.table(
+    maik_unique, here("data", "unique_maik.txt"),
+    row.names = FALSE, quote = FALSE
+)
+write.table(
+    andrew_unique, here("data", "unique_andrew.txt"),
+    row.names = FALSE, quote = FALSE
+)
+
+# sentence types
+write.table(sentence_types, here("data", "sentence_types.csv"),
+          row.names = FALSE, quote = FALSE)
+
+# message types
+write.table(dlong, here("data", "message_types.csv"),
+          row.names = FALSE, quote = FALSE)
+
+# sentiment analysis
+write.table(info_df, here("data", "sentiment_stats.csv"),
+          row.names = FALSE, quote = FALSE)
+```
+
+# Session Info
+
+```{r session, cache=FALSE}
+xfun::session_info(dependencies = FALSE)
+```
+
+# References
