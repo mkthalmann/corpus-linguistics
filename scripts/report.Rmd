@@ -58,11 +58,11 @@ text-align: justify
 }
 </style>
 
-Text mining has been applied to vast variety of texts and research goals, like linguistics [for an overview, see @BiberDouglas2015TCho], narratology [@mahmoudi2018literary] and political science [@wilkersonpolsci]. Though the computational toolkit is ever-expanding, ranging from simple techniques to sophisticated machine learning algorithms, there exist a number of steps are employed in a vast majority of projects of this kind.
+Text mining has been applied to vast variety of texts and research goals, like linguistics [for an overview, see @BiberDouglas2015TCho], narratology [@mahmoudi2018literary], and political science [@wilkersonpolsci]. Though the computational toolkit is ever-expanding, ranging from simple techniques to sophisticated machine learning algorithms, there exist a number of steps which are employed in a vast majority of projects of this kind.
 
-In what follows, I will apply a subset of the techniques that are prominent in those approaches to an ongoing message log on the Facebook-owned platform Whatsapp, spanning one entire year -- highlighting along the way natural ways of combining the different techniques in order to bolster the results brought forth by them individually. Specifically, following data preparation, I will first analyse message- and conversation-level statistics such as message length and frequency, focusing on points of contrasts between the two speakers in the corpus and on message clusters on the time axis with a focus on time of day, day of the week and month. 
+In what follows, I will apply a subset of the techniques that are prominent in those approaches to an ongoing message log on the Facebook-owned platform Whatsapp, spanning one entire year -- highlighting along the way natural ways of combining the different techniques in order to bolster the results brought forth by them individually. Specifically, following data preparation, I will first analyze message- and conversation-level statistics such as message length and frequency, focusing on points of contrast between the two speakers in the corpus and on message clusters on the time axis with a focus on time of day, day of the week, and month. 
 
-Following that, regular expression queries will be employed to identify typical themes and their distribution and status in the conversation, as well as n-grams to carve out common multi-word sequences that both unique to one speaker and shared between both. In a final step, the entire corpus will be analysed using sentiment analysis, focusing one base emotions on the one hand and simply emotional valance (or polarity) on the other. Combined, all of these technique will enable us to generate a clear picture as to how both speakers structure and compose their contributions to shared conversational goals and how both of diverge from the other.
+Following that, regular expression queries will be employed to identify typical themes, their distribution, and status in the conversation, as well as n-grams to carve out common multi-word sequences that are both unique to one speaker and shared between both. In a final step, the entire corpus will be analyzed using sentiment analysis, focusing on base emotions on the one hand and simple emotional valance (or polarity) on the other. Combined, all of these technique will enable us to generate a clear picture as to how both speakers structure and compose their contributions to shared conversational goals and how both of diverge from the other.
 
 ```{r loadpack, results='hide'}
 # load packages
@@ -127,7 +127,7 @@ theme_set(theme_maik())
 
 # Data Preparation
 
-The message log to form our object of study was obtained by using the provided export option within the iPhone app. Note that due to an update earlier in the year and following a legal decision by German courts, this functionality no longer exists for German users of the app.^[See https://t3n.de/news/whatsapp-kein-chat-export-mehr-1238327/.] Because of this, I will be analyzing an exported messages log that was created prior to the loss of that functionality. 
+The message log to form our object of study was obtained by using the provided export option within the iPhone app. Note that due to an update earlier in the year and following a legal decision by German courts, this functionality no longer exists for German users of the app.^[See https://t3n.de/news/whatsapp-kein-chat-export-mehr-1238327/.] Because of this, I will be analyzing an exported message log that was created prior to the loss of that functionality. 
 
 In order to make the messages usable for the operations to follow, the text file, see the listing below for an example of the structure of the exported messages, needs to be cleaned. Though most of the information that we will need is present in the file (date, time, sender, and message data are exported as a single line per message), it is more convenient to work with data matrices.
 
@@ -220,7 +220,7 @@ data.frame(
 head(d)
 ```
 
-At this stage, The entire corpus totals `r length(d$date)` messages. However, next, all rows containing missing values were eliminated from the data set, leaving `r length(d$date[complete.cases(d)])` rows of complete data. Missing values were generated whenever no date, sender, or message could be identified. As far as I can tell, this occurred whenever media files of any kind (images, video files, voice messages) were sent or when non-message events like WhatsApp-internal calls were carried out. In light of this, these rows can be deleted safely and will not affect any of the following analyses in a meaningful way.
+At this stage, The entire corpus totals `r length(d$date)` messages. Next, all rows containing missing values were eliminated from the data set, leaving `r length(d$date[complete.cases(d)])` rows of complete data. Missing values were generated whenever no date, sender, or message could be identified. As far as I can tell, this occurred whenever media files of any kind (images, video files, voice messages) were sent or when non-message events like WhatsApp-internal calls were carried out. In light of this, these rows can be deleted safely and will not affect any of the following analyses in a meaningful way.
 
 ```{r emptycol}
 # remove empty rows
@@ -236,7 +236,7 @@ senders <- tabyl(d$sender)
 adorn_pct_formatting(senders)
 ```
 
-Because of the way that R handles dates internally, namely with a designated data format, some conversions into that format are in order before we can proceed to draw conclusions from our data. This will not only come into play when visualizing the data, but also when creating further subdivisions for the data information. Specifically, below columns are added that identify the the month the message was sent as well as the corresponding day of the week, respectively.
+Because of the way that R handles dates internally, namely with a designated data format, some conversions into that format are in order before we can proceed to draw conclusions from our data. This will not only come into play when visualizing the data, but also when creating further subdivisions for data inspection. Specifically, below columns are added that identify the the month the message was sent as well as the corresponding day of the week, respectively.
 
 ```{r convert}
 # data format conversions
@@ -289,7 +289,7 @@ d$word <- str_count(d$message, boundary("word"))
 sum(d$word)
 ```
 
-The code above allows for the following conclusions: Andrew sent `r length(d$word[d$sender == "Andrew"])` messages, while Maik sent only `r length(d$word[d$sender == "Maik"])`.^[Note that words here are simply defined collections of characters delimited by whitespace characters, thus including emojis and other markers of informal conversation types.] However, the longest message of `r max(d$word)` words was sent by Maik, who, at the same time supersedes Andrew in average message length: `r mean(d$word[d$sender == "Andrew"])` words for Andrew, `r mean(d$word[d$sender == "Maik"])` for Maik.
+The code above allows for the following conclusions: Andrew sent `r length(d$word[d$sender == "Andrew"])` messages, while Maik sent only `r length(d$word[d$sender == "Maik"])`.^[Note that words here are simply defined collections of characters delimited by whitespace characters, thus including emojis and other markers of informal conversation types.] However, the longest message of `r max(d$word)` words was sent by Maik, who, at the same time, supersedes Andrew in average message length: `r mean(d$word[d$sender == "Andrew"])` words for Andrew, `r mean(d$word[d$sender == "Maik"])` for Maik.
 
 The visualization below gives a more detailed impression of the message length distribution, showing a substantial skew to the right, in favor of shorter messages.
 
@@ -308,7 +308,7 @@ ggplot(words, aes(x = `d$word`, y = n)) +
 
 A more detailed overview of how each speaker contributed to the conversation overall and in times of extreme (in)activity is shown in the following tables. The first of which deals with character length, the latter with (white)space-delimited character sequences.
 
-Summary statistics generated using @revelle2018psych.
+Summary statistics were generated using @revelle2018psych.
 
 ## Message Length in Characters
 
@@ -435,7 +435,7 @@ sentence_types <- factor(sentence_types[sentence_types %in%
                                             c("?", "!", ".")])
 ```
 
-The table below confirms the remarks made at the outset of this section: declarative utterance form the overwhelming minority, contrary to what we would expect from texts otherwise. If the goal was to gather reliable data, as opposed to simply exploring the limits of simple text mining approaches, a modulation of the regular expression patterns would be in order. Or, failing that, the results would have to be discarded. As it stands, we can observe that, under the chosen approach, imperative/exclamative and interrogative utterance are used here in relative equilibrium (though, of course, the same caveats regarding graphematic demarcation apply to these as well).
+The table below confirms the remarks made at the outset of this section: declarative utterance form the overwhelming minority, contrary to what we would expect from standard texts otherwise. If the goal was to gather reliable data, as opposed to simply exploring the limits of simple text mining approaches, a modulation of the regular expression patterns would be in order. Or, failing that, the results would have to be discarded. As it stands, we can observe that, under the chosen approach, imperative/exclamative and interrogative utterance are used here in relative equilibrium (though, of course, the same caveats regarding graphematic demarcation apply to these as well).
 
 ```{r sentencepercent}
 # compute the overall occurrences as well as their ratio
@@ -455,7 +455,7 @@ In this section, I wanted to identify different types of messages and their impa
 sorry|apologize|entschuldigung|tut mir leid
 ```
 
-Next, a function was defined that would import one such pattern from its text file and run a case insensitive regular expression search over all of the messages in the corpus. The resulting counts for each of these searches were added in separate column for the data frame.
+Next, a function was defined that would import one such pattern from its text file and run a case insensitive regular expression search over all of the messages in the corpus. The resulting counts for each of these searches were added in separate columns for the data frame.
 
 ```{r newcols}
 # function to read in the patterns from the text files with regex patterns
@@ -518,7 +518,7 @@ d %>%
 d <- mutate_at(d, c("sender"), factor)
 ```
 
-The plot below highlights one message type (*I-love-you*-type messages and related displays of affection) in all of the dimensions of the corpus we have considered so far by showing the mean occurrence rate per message over the entirety of the year under study, separately for each month, and by day of the week.
+The plot below highlights one message type (*I-love-you*-type messages and related displays of affection) in all of the dimensions of the corpus we have considered so far, by showing the mean occurrence rate per message over the entirety of the year under study, separately for each month, and by day of the week.
 
 ```{r lovemsgplt, optipng = '-o7'}
 ilyplt1 <- ggplot(d, aes(x = date, y = ily, color = sender)) +
@@ -584,7 +584,7 @@ d %>%
     facet_wrap(~sender)
 ```
 
-Gif generated using @Pedersen2020gganimate
+The gif was generated using @Pedersen2020gganimate.
 
 ```{r typegif, fig.height = 3, gganimate = list(fps = 5, nframes = 50)}
 d %>%
@@ -855,7 +855,7 @@ tridat_a <- head(get.phrasetable(tri_a), 15)
 tridat_m <- head(get.phrasetable(tri_m), 15)
 ```
 
-Having processed the trigrams, we can now visualize which ones are the most common. The plot below shows, in the upper panel, the most prevalent trigrams overall and, in the lower panels, the results for each speaker in isolation. Apart from simply showing the trigrams, this also confirms that the message type analyses using regular expressions captured very ubiquitous themes in the conversation at hand: the first four trigrams in the overall panel, for example, are clear instantiations of the types of messages that were caught by the *i-love-you*-type pattern and there are cases of other message types as well. Insofar, then, both analyses substantiate each other by achieving similar results by different approaches.
+Having processed the trigrams, we can now visualize which ones are the most common. The plot below shows, in the upper panel, the most prevalent trigrams overall and, in the lower panels, the results for each speaker in isolation. Apart from simply showing the trigrams, this also confirms that the message type analyses using regular expressions captured very ubiquitous themes in the conversation at hand: the first four trigrams in the overall panel, for example, are clear instantiations of the types of messages that were caught by the *i-love-you*-type pattern and there are cases of other message types as well. Insofar then, both analyses substantiate each other by achieving similar results despite the use of different approaches.
 
 ```{r triplts, optipng = '-o7'}
 tri_all <- ggplot(tridat, aes(x = reorder(ngrams, freq), y = freq)) +
@@ -879,7 +879,7 @@ tri_all /
 
 ## Generating N-Grams {.tabset}
 
-One further feature introduced with the *ngram* package is the possibility of generating text from the base message string that has the same statistical properties as the n-grams that were found using markov chains as a sampling scheme.^[Note that this process is not fully reproducible as *ngram* employs its own internal random number sampling process, rendering R's `set.seed()` ineffective.] Obviously, the generated strings are not always grammatical (or even intelligible), but with regard to the rise of text generation/natural computerized messaging projects like ELIZA [@Weizenbaum1966], it is an interesting functionality. The tables below feature ten instances of sampled text of five tokens each for both speakers.
+One further feature introduced with the *ngram* package is the possibility of generating text from the base message string that has the same statistical properties as the n-grams that were found using Markov chains as a sampling scheme.^[Note that this process is not fully reproducible as *ngram* employs its own internal random number sampling process, rendering R's `set.seed()` ineffective.] Obviously, the generated strings are not always grammatical (or even intelligible), but with regard to the rise of text generation/natural computerized messaging projects like ELIZA [@Weizenbaum1966], it is an interesting functionality. The tables below feature ten instances of sampled text of five tokens each for both speakers.
 
 ### Andrew
 
@@ -1159,9 +1159,9 @@ pol_overall
 
 # Conclusions
 
-Summing up, let me try to recapitulate and bring to gather the, at first at least, very disparate approaches and results to the corpus linguistic methods that were applied over the course of this study. Despite the inhomogeneity of the techniques, there were points of contact at which one approach substantiated the results of another. For example, both the n-gram analyses and the word lists obtained through the virtual corpora suggest an overall similar vocabulary between both speakers and, in turn, naturally extended the message topic identification attempt using regular expressions. 
+Summing up, let me try to recapitulate and bring to gather the, at first glance at least, very disparate approaches and results to the corpus linguistic methods that were applied over the course of this study. Despite the inhomogeneity of the techniques, there were points of contact at which one approach substantiated the results of another. For example, both the n-gram analyses and the word lists obtained through the virtual corpora suggest an overall similar vocabulary between both speakers and, in turn, naturally extended the message topic identification attempt using regular expressions. 
 
-Wihtin all of those results, there was a large amount of between both speakers; a finding that was again confirmed with the sentiment analysis where both speakers were found to convey the same range of emotions and, what was more surprising, to the same degree. Insofar then, all the analyses delivered similar impressions of the data under study, if from different angles. Thus, a wealth of techniques enables not only the investigation of different facets of the data but also serve to offer a great deal of corroboration.
+Wihtin all of those results, there was a large amount of overlap between both speakers; a finding that was again confirmed with the sentiment analysis where both speakers were found to convey the same range of emotions and, what was more surprising, to the same degree. Insofar then, all the analyses delivered similar impressions of the data under study, if from different angles. Thus, a wealth of techniques enables not only the investigation of different facets of the data but also serve to offer a great deal of corroboration.
 
 The points of contrast, on the other hand, were less overarching in their appearance and generally only manifested either when more fine-grained measures were applied (for example with the unique speaker-level vocabulary). On this view then, contrastive studies, specifically when the sought after discrepancies are general, should employ a variety of approaches in order to facilitate higher identification chances.
 
